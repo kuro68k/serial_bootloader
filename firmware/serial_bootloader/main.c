@@ -107,9 +107,6 @@ void CCPWrite(volatile uint8_t *address, uint8_t value)
 */
 int main(void)
 {
-	//CCP = CCP_IOREG_gc;				// unlock IVSEL
-	//PMIC.CTRL |= PMIC_IVSEL_bm;		// set interrupt vector table to bootloader section
-
 	// set up USART
 	BL_USART.BAUDCTRLA = (uint8_t)BL_BSEL;
 	BL_USART.BAUDCTRLB = (BL_BSCALE << 4) | (BL_BSEL >> 8);
@@ -128,6 +125,9 @@ int main(void)
 		RAMPZ = 0;				// LPM uses lower 64k of flash
 		application_vector();
 	}
+
+	//CCP = CCP_IOREG_gc;				// unlock IVSEL
+	//PMIC.CTRL |= PMIC_IVSEL_bm;		// set interrupt vector table to bootloader section
 	
 	// bootloader
 	for(;;)
