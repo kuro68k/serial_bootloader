@@ -2,7 +2,7 @@
  * protocol.h
  *
  * Created: 29/03/2015 21:41:15
- *  Author: MoJo
+ *  Author: Paul Qureshi
  */ 
 
 
@@ -13,7 +13,7 @@
 #define RES_OK						'A'
 #define RES_FAIL					'F'
 
-#define	CMD_NOP						0xFF
+#define	CMD_NOP						'n'
 #define CMD_ERASE_APP_SECTION		'!'
 #define CMD_WRITE_PAGE				'W'
 #define CMD_READ_PAGE				'r'

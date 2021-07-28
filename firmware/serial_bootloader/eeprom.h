@@ -1,7 +1,7 @@
 /*
  * eeprom.h
  *
- * Author:	MoJo
+ * Author:	Paul Qureshi
  * Created: 26/06/2012 13:25:42
  */
 

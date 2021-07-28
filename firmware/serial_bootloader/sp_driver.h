@@ -87,7 +87,7 @@
  *
  *  \retval Byte read from flash.
  */
-uint8_t SP_ReadByte(uint32_t address);
+uint8_t SP_ReadByte(uint32_t page);
 
 /*! \brief Read a word from flash.
  *
@@ -100,7 +100,7 @@ uint8_t SP_ReadByte(uint32_t address);
  *
  *  \retval word read from flash.
  */
-uint16_t SP_ReadWord(uint32_t address);
+uint16_t SP_ReadWord(uint32_t page);
 
 /*! \brief Read calibration byte at given index.
  *
@@ -177,7 +177,7 @@ void SP_EraseApplicationSection(void);
  *
  *  \param address Byte address for flash page.
  */
-void SP_EraseApplicationPage(uint32_t address);
+void SP_EraseApplicationPage(uint32_t page);
 
 /*! \brief Erase and write page buffer to application or application table section at byte address.
  *
@@ -186,7 +186,7 @@ void SP_EraseApplicationPage(uint32_t address);
  *
  *  \param address Byte address for flash page.
  */
-void SP_EraseWriteApplicationPage(uint32_t address);
+void SP_EraseWriteApplicationPage(uint32_t page);
 
 /*! \brief Write page buffer to application or application table section at byte address.
  *
@@ -197,7 +197,7 @@ void SP_EraseWriteApplicationPage(uint32_t address);
  *
  *  \param address Byte address for flash page.
  */
-void SP_WriteApplicationPage(uint32_t address);
+void SP_WriteApplicationPage(uint32_t page);
 
 /*! \brief Load one word into Flash page buffer.
  *
@@ -206,7 +206,7 @@ void SP_WriteApplicationPage(uint32_t address);
  *  \param  address   Position in inside the flash page buffer.
  *  \param  data      Value to be put into the buffer.
  */
-void SP_LoadFlashWord(uint16_t address, uint16_t data);
+void SP_LoadFlashWord(uint16_t page, uint16_t data);
 
 /*! \brief Load entire page from SRAM buffer into Flash page buffer.
  *
@@ -226,7 +226,7 @@ void SP_LoadFlashPage(const uint8_t * data);
  *	\param data      Pointer to where to store the data.
  *	\param address   Address to page to read from flash.
  */
-void SP_ReadFlashPage(const uint8_t * data, uint32_t address);
+void SP_ReadFlashPage(const uint8_t * data, uint32_t page);
 
 /*! \brief Flush Flash page buffer.
  *
@@ -240,7 +240,7 @@ void SP_EraseFlashBuffer(void);
  *
  *  \param address Byte address for flash page.
  */
-void SP_EraseBootPage(uint32_t address);
+void SP_EraseBootPage(uint32_t page);
 
 /*! \brief Erase and write page buffer to boot section at byte address.
  *
@@ -249,7 +249,7 @@ void SP_EraseBootPage(uint32_t address);
  *
  *  \param address Byte address for flash page.
  */
-void SP_EraseWriteBootPage(uint32_t address);
+void SP_EraseWriteBootPage(uint32_t page);
 
 /*! \brief Write page buffer to boot section at byte address.
  *
@@ -260,7 +260,7 @@ void SP_EraseWriteBootPage(uint32_t address);
  *
  *  \param address Byte address for flash page.
  */
-void SP_WriteBootPage(uint32_t address);
+void SP_WriteBootPage(uint32_t page);
 
 /*! \brief Generate CRC from application section.
  *

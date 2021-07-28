@@ -2,7 +2,7 @@
  * serial_bootloader.c
  *
  * Created: 29/04/2016 09:26:07
- * Author : MoJo
+ * Author : Paul Qureshi
  */ 
 
 #include <avr/io.h>
@@ -26,10 +26,22 @@
 #define BOOTLOADER_VERSION	1
 
 // USART settings, uses default 2MHz CPU clock
-#define BL_USART			USARTC0
-#define BL_BSEL				11
+#define BL_USART			USARTC1
+#define BL_BSEL				1539		// 19200
 #define BL_BSCALE			-7
 #define BL_CLK2X			USART_CLK2X_bm
+// for half duplex RS485
+#define	BL_CTRL_PORT		PORTC
+#define	BL_CTRL_DE_PIN_bm	PIN4_bm
+#define	BL_CTRL_nRE_PIN_bm	PIN5_bm
+#define	BL_CTRL_RX_MODE		_delay_us(1000); BL_CTRL_PORT.OUTCLR = BL_CTRL_DE_PIN_bm | BL_CTRL_nRE_PIN_bm; BL_USART.DATA; BL_USART.DATA;
+#define	BL_CTRL_TX_MODE		_delay_ms(10); BL_CTRL_PORT.OUTSET = BL_CTRL_DE_PIN_bm | BL_CTRL_nRE_PIN_bm; _delay_us(1000);
+
+#define LED_PORT			PORTF
+#define	LED_PIN_bm			PIN5_bm
+#define	LED_ENABLE			do { LED_PORT.OUTCLR = LED_PIN_bm; } while(0)
+#define	LED_DISABLE			do { LED_PORT.OUTSET = LED_PIN_bm; } while(0)
+#define	LED_TOGGLE			do { LED_PORT.OUTTGL = LED_PIN_bm; } while(0)
 
 
 typedef void (*AppPtr)(void) __attribute__ ((noreturn));
@@ -44,6 +56,16 @@ inline uint8_t get_char(void)
 {
 	while (!(BL_USART.STATUS & USART_RXCIF_bm));
 	return BL_USART.DATA;
+}
+
+/**************************************************************************************************
+* Non-blocking get_char, returns 0 if no char available
+*/
+inline uint8_t get_char_nonblocking(void)
+{
+	if (BL_USART.STATUS & USART_RXCIF_bm)
+		return BL_USART.DATA;
+	return 0;
 }
 
 /**************************************************************************************************
@@ -78,7 +100,7 @@ void put_uint32(uint32_t word)
 /**************************************************************************************************
 * Write to a CCP protected register
 */
-void CCPWrite(volatile uint8_t *address, uint8_t value)
+void CCPWrite(volatile uint8_t *page, uint8_t value)
 {
         uint8_t	saved_sreg;
 
@@ -86,7 +108,7 @@ void CCPWrite(volatile uint8_t *address, uint8_t value)
 		saved_sreg = SREG;
 		cli();
 		
-		volatile uint8_t * tmpAddr = address;
+		volatile uint8_t * tmpAddr = page;
         RAMPZ = 0;
 
         asm volatile(
@@ -107,6 +129,15 @@ void CCPWrite(volatile uint8_t *address, uint8_t value)
 */
 int main(void)
 {
+	LED_PORT.DIR = LED_PIN_bm;
+	
+	// platform specific stuff
+	PORTB.OUTSET = PIN2_bm | PIN3_bm;	// flood relay and bypass relay
+	PORTB.DIRSET = PIN2_bm;
+	PORTB.DIRSET = PIN3_bm;
+	
+	PORTC.DIRSET = PIN7_bm;	// USART TX
+
 	// set up USART
 	BL_USART.BAUDCTRLA = (uint8_t)BL_BSEL;
 	BL_USART.BAUDCTRLB = (BL_BSCALE << 4) | (BL_BSEL >> 8);
@@ -114,17 +145,42 @@ int main(void)
 	BL_USART.CTRLB = USART_RXEN_bm | USART_TXEN_bm | BL_CLK2X;
 	BL_USART.CTRLC = USART_CMODE_ASYNCHRONOUS_gc | USART_PMODE_DISABLED_gc | USART_CHSIZE_8BIT_gc;
 
-	if (0)
-	//if (!(PORTD.IN & PIN5_bm))	// jump to application
+	BL_CTRL_PORT.DIRSET = BL_CTRL_DE_PIN_bm | BL_CTRL_nRE_PIN_bm;
+	BL_CTRL_RX_MODE;
+
+	// timeout using RTC
+	RTC.CTRL = RTC_PRESCALER_OFF_gc;						// make sure clock isn't running while we configure it
+	CLK.RTCCTRL = CLK_RTCSRC_ULP_gc | CLK_RTCEN_bm;			// 1024Hz clock from ULP
+	while (RTC.STATUS & RTC_SYNCBUSY_bm)					// essential to wait for this condition or the RTC doesn't work
+		;
+	RTC.PER = 0xFFFF;
+	RTC.CNT = 0;
+	RTC.INTCTRL = 0;
+	RTC.CTRL = RTC_PRESCALER_DIV1_gc;
+
+	LED_ENABLE;
+
+	char c;
+	do
 	{
-		// exit bootloader
-		AppPtr application_vector = (AppPtr)0x000000;
-		CCP = CCP_IOREG_gc;		// unlock IVSEL
-		PMIC.CTRL = 0;			// disable interrupts, set vector table to app section
-		EIND = 0;				// indirect jumps go to app section
-		RAMPZ = 0;				// LPM uses lower 64k of flash
-		application_vector();
-	}
+		if (RTC.CNT > 2048)			// 2 second time-out
+		{
+			// exit bootloader
+			LED_DISABLE;
+			RTC.CTRL = 0;
+			AppPtr application_vector = (AppPtr)0x000000;
+			CCP = CCP_IOREG_gc;		// unlock IVSEL
+			PMIC.CTRL = 0;			// disable interrupts, set vector table to app section
+			EIND = 0;				// indirect jumps go to app section
+			RAMPZ = 0;				// LPM uses lower 64k of flash
+			application_vector();
+		}
+		c = get_char_nonblocking();
+	} while (c != CMD_NOP);
+	BL_CTRL_TX_MODE;
+	put_char(RES_OK);	// acknowledge start of bootloader
+	BL_CTRL_RX_MODE;
+	LED_DISABLE;
 
 	//CCP = CCP_IOREG_gc;				// unlock IVSEL
 	//PMIC.CTRL |= PMIC_IVSEL_bm;		// set interrupt vector table to bootloader section
@@ -132,59 +188,75 @@ int main(void)
 	// bootloader
 	for(;;)
 	{
-		uint8_t c = get_char();
+		c = get_char();
+		asm("wdr");
+		LED_TOGGLE;
 		switch (c)
 		{
 			
 			case CMD_ERASE_APP_SECTION:
 				SP_WaitForSPM();
 				SP_EraseApplicationSection();
+				BL_CTRL_TX_MODE;
 				put_char(RES_OK);
+				BL_CTRL_RX_MODE;
 				break;
 			
 			case CMD_WRITE_PAGE:
 			{
-				uint16_t address;
-				address = get_char() << 8;
-				address |= get_char();
-				if (address >= APP_SECTION_NUM_PAGES)
+				uint16_t page;
+				page = get_char() << 8;
+				page |= get_char();
+				if (page >= APP_SECTION_NUM_PAGES)
 				{
+					BL_CTRL_TX_MODE;
 					put_char(RES_FAIL);
+					BL_CTRL_RX_MODE;
 					break;
 				}
+				BL_CTRL_TX_MODE;
+				put_char(RES_OK);
+				BL_CTRL_RX_MODE;
+				
 				for (PAGE_INDEX_t i = 0; i < APP_SECTION_PAGE_SIZE; i++)
 					page_buffer[i] = get_char();
 				SP_WaitForSPM();
 				SP_LoadFlashPage(page_buffer);
-				SP_WriteApplicationPage(address);
+				SP_WriteApplicationPage(APP_SECTION_START + ((uint32_t)page * APP_SECTION_PAGE_SIZE));
+				SP_WaitForSPM();
+				BL_CTRL_TX_MODE;
 				put_char(RES_OK);
+				BL_CTRL_RX_MODE;
 				break;
 			}
 			
 			case CMD_READ_PAGE:
 			{
-				uint16_t address;
-				address = get_char() << 8;
-				address |= get_char();
-				if (address >= APP_SECTION_NUM_PAGES)
+				uint16_t page;
+				page = get_char() << 8;
+				page |= get_char();
+				if (page >= APP_SECTION_NUM_PAGES)
 				{
 					put_char(RES_FAIL);
 					break;
 				}
-				address *= APP_SECTION_PAGE_SIZE;
+				put_char(RES_OK);
+				page *= APP_SECTION_PAGE_SIZE;
 				
 				put_uint16(APP_SECTION_PAGE_SIZE);
 				for (PAGE_INDEX_t i = 0; i < APP_SECTION_PAGE_SIZE; i++)
-					put_char(*(uint8_t *)address++);
+					put_char(*(uint8_t *)page++);
 				break;
 			}
 			
 			case CMD_READ_FLASH_CRCS:
+				put_char(RES_OK);
 				put_uint32(SP_ApplicationCRC());
 				put_uint32(SP_BootCRC());
 				break;
 
 			case CMD_READ_MCU_IDS:
+				put_char(RES_OK);
 				put_uint16(4);
 				put_char(MCU.DEVID0);
 				put_char(MCU.DEVID1);
@@ -194,6 +266,7 @@ int main(void)
 			
 			case CMD_READ_SERIAL:
 			{
+				put_char(RES_OK);
 				put_uint16(11);
 				for (uint8_t i = 0; i < 11; i++)
 					put_char(SP_ReadCalibrationByte(offsetof(NVM_PROD_SIGNATURES_t, LOTNUM0) + i));
@@ -201,6 +274,7 @@ int main(void)
 			}
 			
 			case CMD_READ_BOOTLOADER_VERSION:
+				put_char(RES_OK);
 				put_char(BOOTLOADER_VERSION);
 				break;
 			
@@ -220,16 +294,17 @@ int main(void)
 
 			case CMD_READ_EEPROM:
 			{
-				uint16_t address;
-				address = get_char() << 8;
-				address |= get_char();
-				if (address >= EEPROM_NUM_PAGES)
+				uint16_t page;
+				page = get_char() << 8;
+				page |= get_char();
+				if (page >= EEPROM_NUM_PAGES)
 				{
 					put_char(RES_FAIL);
 					break;
 				}
-				address *= EEPROM_PAGE_SIZE;
-				uint8_t *ptr = (uint8_t *)address + MAPPED_EEPROM_START;
+				put_char(RES_OK);
+				page *= EEPROM_PAGE_SIZE;
+				uint8_t *ptr = (uint8_t *)page + MAPPED_EEPROM_START;
 				
 				put_uint16(EEPROM_PAGE_SIZE);
 				for (uint8_t i = 0; i < EEPROM_PAGE_SIZE; i++)
@@ -239,19 +314,20 @@ int main(void)
 			
 			case CMD_WRITE_EEPROM:
 			{
-				uint16_t address;
-				address = get_char() << 8;
-				address |= get_char();
-				if (address >= EEPROM_NUM_PAGES)
+				uint16_t page;
+				page = get_char() << 8;
+				page |= get_char();
+				if (page >= EEPROM_NUM_PAGES)
 				{
 					put_char(RES_FAIL);
 					break;
 				}
-				address *= EEPROM_PAGE_SIZE;
-				uint8_t *ptr = (uint8_t *)address + MAPPED_EEPROM_START;
+				put_char(RES_OK);
+				page *= EEPROM_PAGE_SIZE;
+				uint8_t *ptr = (uint8_t *)page + MAPPED_EEPROM_START;
 				for (uint8_t i = 0; i < EEPROM_PAGE_SIZE; i++)
 					*ptr++ = get_char();
-				EEP_AtomicWritePage(address);
+				EEP_AtomicWritePage(page);
 				put_char(RES_OK);
 				break;
 			}
@@ -259,10 +335,12 @@ int main(void)
 			case CMD_ERASE_USER_SIG_ROW:
 				SP_WaitForSPM();
 				SP_EraseUserSignatureRow();
+				put_char(RES_OK);
 				break;
 			
 			case CMD_READ_USER_SIG_ROW:
 			{
+				put_char(RES_OK);
 				put_uint16(USER_SIGNATURES_PAGE_SIZE);
 				for (PAGE_INDEX_t i = 0; i < USER_SIGNATURES_PAGE_SIZE; i++)
 					put_char(SP_ReadUserSignatureByte(i));
@@ -281,14 +359,14 @@ int main(void)
 			}
 			
 			case CMD_READ_MEMORY_SIZES:
-				put_uint16(APP_SECTION_PAGE_SIZE);
-				put_uint16(APP_SECTION_SIZE);
-				put_uint16(BOOT_SECTION_PAGE_SIZE);
-				put_uint16(BOOT_SECTION_SIZE);
-				put_uint16(EEPROM_PAGE_SIZE);
-				put_uint16(EEPROM_SIZE);
+				put_char(RES_OK);
+				put_uint32(APP_SECTION_PAGE_SIZE);
+				put_uint32(APP_SECTION_SIZE);
+				put_uint32(BOOT_SECTION_PAGE_SIZE);
+				put_uint32(BOOT_SECTION_SIZE);
+				put_uint32(EEPROM_PAGE_SIZE);
+				put_uint32(EEPROM_SIZE);
 				break;
 		}
 	}
 }
-

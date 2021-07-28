@@ -34,11 +34,11 @@ void EEP_AtomicWritePage(uint8_t page_addr)
 	EEP_WaitForNVM();
 
 	// Calculate page address
-	uint16_t address = (uint16_t)(page_addr*EEPROM_PAGE_SIZE);
+	uint16_t page = (uint16_t)(page_addr*EEPROM_PAGE_SIZE);
 
 	// Set address
-	NVM.ADDR0 = address & 0xFF;
-	NVM.ADDR1 = (address >> 8) & 0x1F;
+	NVM.ADDR0 = page & 0xFF;
+	NVM.ADDR1 = (page >> 8) & 0x1F;
 	NVM.ADDR2 = 0x00;
 
 	// Issue EEPROM Atomic Write (Erase&Write) command
